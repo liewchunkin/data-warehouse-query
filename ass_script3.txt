@@ -1,0 +1,111 @@
+CLEAR COLUMNS
+CLEAR BREAKS
+CLEAR COMPUTES
+TTITLE OFF
+REPFOOTER OFF
+
+SET PAGESIZE 100
+SET LINESIZE 145
+
+ACCEPT currentYear DATE FORMAT 'YYYY'-
+PROMPT 'Enter Current Year (YYYY): '
+
+ACCEPT productline CHAR FORMAT 'A20'-
+PROMPT 'Enter Product Line Type: '
+
+CREATE OR REPLACE VIEW PRODUCT_PERFORMANCE1 AS
+SELECT P.productline, P.productname, sum(S.linetotal) as SUM
+FROM sales_fact S, dim_products P, DIM_DATE D
+WHERE S.product_key = P.product_key AND
+      S.DATE_KEY = D.DATE_KEY AND
+      P.product_key IN (SELECT product_key
+			FROM dim_products
+			WHERE productline = '&productline') AND
+      S.DATE_KEY IN (SELECT DATE_KEY
+		     FROM DIM_DATE
+		     WHERE CAL_YEAR = '&CURRENTYEAR' - '1')
+GROUP BY P.productline, P.productname;
+
+CREATE OR REPLACE VIEW PRODUCT_PERFORMANCE2 AS
+SELECT P.productline, P.productname, sum(S.linetotal) as SUM
+FROM sales_fact S, dim_products P, DIM_DATE D
+WHERE S.product_key = P.product_key AND
+      S.DATE_KEY = D.DATE_KEY AND
+      P.product_key IN (SELECT product_key
+			FROM dim_products
+			WHERE productline = '&productline') AND
+      S.DATE_KEY IN (SELECT DATE_KEY
+		     FROM DIM_DATE
+		     WHERE CAL_YEAR = '&CURRENTYEAR')
+GROUP BY P.productline, P.productname;
+
+CREATE OR REPLACE VIEW PRODUCT_PERFORMANCE AS
+SELECT A.productline,A.productname, A.SUM AS YEAR1,B.SUM AS YEAR2
+FROM PRODUCT_PERFORMANCE1 A, PRODUCT_PERFORMANCE2 B
+WHERE A.productline = B.productline AND
+A.productname = B.productname;
+
+CREATE OR REPLACE VIEW SALES_TOTAL_TYPE1 AS
+SELECT SUM(S.LINETOTAL) AS TOTAL_SALES_TYPE,
+       COUNT(DISTINCT(P.productname)) AS NO_PRODUCT,
+       ROUND((SUM(S.LINETOTAL))/(COUNT(DISTINCT(P.productname))),2) AS AVERAGE,
+       D.CAL_YEAR, P.productline
+FROM DIM_PRODUCTS P, SALES_FACT S, DIM_DATE D
+WHERE P.PRODUCT_KEY = S.PRODUCT_KEY AND
+      D.DATE_KEY = S.DATE_KEY AND
+      D.CAL_YEAR = '&CURRENTYEAR' - '1' AND
+      P.productline = '&productline'
+GROUP BY D.CAL_YEAR, P.productline;
+
+CREATE OR REPLACE VIEW SALES_TOTAL_TYPE2 AS
+SELECT SUM(S.LINETOTAL) AS TOTAL_SALES_TYPE,
+       COUNT(DISTINCT(P.productname)) AS NO_PRODUCT,
+       ROUND((SUM(S.LINETOTAL))/(COUNT(DISTINCT(P.productname))),2) AS AVERAGE,
+       D.CAL_YEAR, P.productline
+FROM DIM_PRODUCTS P, SALES_FACT S, DIM_DATE D
+WHERE P.PRODUCT_KEY = S.PRODUCT_KEY AND
+      D.DATE_KEY = S.DATE_KEY AND
+      D.CAL_YEAR = '&CURRENTYEAR' AND
+      P.productline = '&productline'
+GROUP BY D.CAL_YEAR, P.productline;
+
+CREATE OR REPLACE VIEW AVG_SALES_YEARS AS
+SELECT A.AVERAGE AS AVG_SALES, B.AVERAGE AS AVG_SALES_1
+FROM SALES_TOTAL_TYPE1 A, SALES_TOTAL_TYPE2 B
+WHERE A.CAL_YEAR = B.CAL_YEAR -1 AND
+      A.productline = B.productline;
+
+COMPUTE SUM LABEL TOTAL -
+        AVG LABEL AVERAGE OF YEAR1 ON productline
+COMPUTE SUM LABEL TOTAL -
+        AVG LABEL AVERAGE OF YEAR2 ON productline
+
+COLUMN YEAR1 Heading "Sales |(Previous Year)" FORMAT $999,999,999.99
+COLUMN YEAR2 Heading "Sales |(&currentYear)" FORMAT $999,999,999.99
+COLUMN DIFFERENT Heading "Different" FORMAT $999,999,999.99
+COLUMN productname HEADING "Product Name" FORMAT A40
+COLUMN productline HEADING "Product Line Type" FORMAT A20
+COLUMN "PERCENTAGE(%)" HEADING "Difference |Percentage(%)" FORMAT 990.99
+
+CLEAR SCREEN
+
+BREAK ON productline ON AVG_SALES_1 ON AVG_SALES
+
+TTITLE CENTER 'Performance Profit of '&productline' Product Line Type in '&currentYear' and Previous Year' SKIP 1 CENTER ------------------------------------------------------------------------- SKIP 1 - LEFT 'Page:' FORMAT 99 SQL.PNO SKIP 2 
+REPFOOTER SKIP 1 CENTER '---END OF REPORT---' SKIP 1
+
+SELECT A.productline, A.productname,A.YEAR2, A.YEAR1,(A.YEAR2- A.YEAR1) AS DIFFERENT, ((A.YEAR2-A.YEAR1)/A.YEAR2)*100 AS "PERCENTAGE(%)",
+	CASE
+		WHEN YEAR2 > YEAR1
+		THEN 'INCREASE'
+		WHEN YEAR2 < YEAR1
+		THEN 'DECREASE'
+		ELSE 'EQUAL'
+	END
+	AS "Profit"
+FROM PRODUCT_PERFORMANCE A, AVG_SALES_YEARS B
+ORDER BY "PERCENTAGE(%)" DESC;
+
+CLEAR COLUMNS
+TTITLE OFF
+REPFOOTER OFF
